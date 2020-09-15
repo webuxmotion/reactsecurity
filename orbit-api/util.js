@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const randToken = require('rand-token');
 
 const createToken = user => {
   // Sign the JWT
@@ -57,9 +58,14 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+const getRefreshToken = () => {
+  return randToken.uid(64);
+}
+
 module.exports = {
   createToken,
   hashPassword,
   verifyPassword,
-  requireAdmin
+  requireAdmin,
+  getRefreshToken,
 };

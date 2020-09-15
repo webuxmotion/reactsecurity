@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const jwt = require('express-jwt');
 const jwtDecode = require('jwt-decode');
+const cookieParser = require('cookie-parser');
 const mongoose = require('mongoose');
 
 const dashboardData = require('./data/dashboard');
@@ -14,7 +15,8 @@ const InventoryItem = require('./data/InventoryItem');
 const {
   createToken,
   hashPassword,
-  verifyPassword
+  verifyPassword,
+  getRefreshToken,
 } = require('./util');
 
 const app = express();
@@ -22,6 +24,20 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
+app.user(cookieParser());
+
+const saveRefreshToken = async (refreshToken, userId) => {
+  try {
+    const storedRefreshToken = new Token({
+      refreshToken,
+      user: userId
+    });
+
+    return await storedRefreshToken.save();
+  } catch (err) {
+    return err;
+  }
+}
 
 app.post('/api/authenticate', async (req, res) => {
   try {
@@ -50,6 +66,13 @@ app.post('/api/authenticate', async (req, res) => {
 
       const decodedToken = jwtDecode(token);
       const expiresAt = decodedToken.exp;
+
+      const refreshToken = getRefreshToken();
+      await saveRefreshToken(refreshToken, userInfo._id);
+
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true
+      });
 
       res.json({
         message: 'Authentication successful!',
@@ -105,6 +128,7 @@ app.post('/api/signup', async (req, res) => {
       const expiresAt = decodedToken.exp;
 
       const {
+        _id,
         firstName,
         lastName,
         email,
@@ -112,11 +136,19 @@ app.post('/api/signup', async (req, res) => {
       } = savedUser;
 
       const userInfo = {
+        _id,
         firstName,
         lastName,
         email,
         role
       };
+
+      const refreshToken = getRefreshToken();
+      await saveRefreshToken(refreshToken, userInfo._id);
+
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true
+      });
 
       return res.json({
         message: 'User created!',
@@ -133,6 +165,38 @@ app.post('/api/signup', async (req, res) => {
     return res.status(400).json({
       message: 'There was a problem creating your account'
     });
+  }
+});
+
+app.get('/api/token/refresh', async(req, res) => {
+  try {
+    const { refreshToken } = req.cookies;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'Not authorized!' });
+    }
+
+    const userFromToken = await Token.findOne({
+      refreshToken
+    }).select('user');
+
+    if (!userFromToken) {
+      return res.status(401).json({ message: 'Not authorized!' });
+    }
+
+    const user = await User.findOne({
+      _id: userFromToken.user
+    });
+
+    if (!user) {
+      return res.status(401).json({ message: 'Not authorized!' });
+    }
+
+    const token = createToken(user);
+
+    return res.json({ token });
+  } catch (err) {
+    return res.status(400).json({ message: 'Something wend wrong'})
   }
 });
 
